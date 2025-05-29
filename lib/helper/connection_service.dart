@@ -1,53 +1,92 @@
 import 'dart:convert';
-import 'dart:io';
-
-import 'package:project_s/shared/show_connection_manager.dart';
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:nearby_connections/nearby_connections.dart';
 
 class ConnectionService {
   static final ConnectionService _instance = ConnectionService._internal();
   factory ConnectionService() => _instance;
   ConnectionService._internal();
 
-  Socket? socket;
+  final Strategy strategy = Strategy.P2P_CLUSTER;
+  String? connectedEndpointId;
+  Function(Map<String, dynamic>)? onDataReceived;
 
-  Future<void> connect(String ip, int port, String password) async {
-    if (socket != null) {
+  // StreamController untuk broadcast payload
+  final ValueNotifier<Map<String, dynamic>?> payloadNotifier =
+      ValueNotifier(null);
+
+  Future<void> startDiscovery(String userName, String expectedPassword,
+      VoidCallback onSuccess, VoidCallback onFail) async {
+    await Nearby().startDiscovery(
+      userName,
+      strategy,
+      onEndpointFound: (id, name, serviceId) {
+        Nearby().requestConnection(
+          userName,
+          id,
+          onConnectionInitiated: (endpointId, info) {
+            Nearby().acceptConnection(
+              endpointId,
+              onPayLoadRecieved: (endid, payload) {
+                final decoded =
+                    jsonDecode(String.fromCharCodes(payload.bytes!));
+                final operationType = decoded['operationType'];
+
+                if (operationType == 'connection') {
+                  final receivedPassword = decoded['password'];
+                  if (receivedPassword == expectedPassword) {
+                    connectedEndpointId = endid;
+                    payloadNotifier.value = decoded;
+                    onSuccess();
+                  } else {
+                    Nearby().disconnectFromEndpoint(endpointId);
+                    onFail();
+                  }
+                } else if (operationType == 'file') {
+                  var fileData = decoded['file'];
+
+                  payloadNotifier.value = fileData;
+                }
+              },
+              onPayloadTransferUpdate: (_, __) {},
+            );
+          },
+          onConnectionResult: (id, status) {
+            if (status == Status.CONNECTED) {
+              final bytes = Uint8List.fromList("Connected".codeUnits);
+              Nearby().sendBytesPayload(id, bytes);
+              ConnectionService().setConnectedEndpoint(id);
+            }
+          },
+          onDisconnected: (id) {},
+        );
+      },
+      onEndpointLost: (id) {},
+    );
+  }
+
+  void setConnectedEndpoint(String id) {
+    connectedEndpointId = id;
+  }
+
+  Future<void> sendToServer(Map<String, dynamic> message) async {
+    if (connectedEndpointId == null) {
       return;
     }
+
+    final jsonMessage = jsonEncode(message);
+    final bytes = Uint8List.fromList(jsonMessage.codeUnits);
 
     try {
-      // Membuat koneksi ke server
-      socket = await Socket.connect(ip, port);
-      // Kirimkan password ke server untuk validasi
-      socket?.write(password);
-      await socket?.flush();
-
-      // Menerima respon dari server
-      final response = await utf8.decoder.bind(socket!).first;
-      if (response.contains("Akses diterima!")) {
-        showConnectionNotification("Terhubung dengan $ip:$port");
-      } else {
-        showConnectionNotification("Gagal terhubung");
-        socket?.close();
-        socket = null;
-      }
-    } catch (e) {
-      showConnectionNotification("Error: $e");
-      socket?.close();
-      socket = null;
-    }
+      await Nearby().sendBytesPayload(connectedEndpointId!, bytes);
+    } catch (e) {}
   }
 
-  void send(String message) {
-    if (socket == null) {
-      return;
-    }
-    socket?.write(message);
-    socket?.flush();
-  }
-
-  void disconnect() {
-    socket?.close();
-    socket = null;
+  void stopAll() {
+    Nearby().stopAllEndpoints();
+    Nearby().stopAdvertising();
+    Nearby().stopDiscovery();
+    connectedEndpointId = null;
   }
 }

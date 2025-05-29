@@ -67,6 +67,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     ButtonHomeStyle(
                       label: 'This device as\nFile Sender',
                       color: const Color(0xFFDFF3D9),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const QrScanScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    ButtonHomeStyle(
+                      label: 'This device as\nBackup Storage',
+                      color: const Color(0xFFE5E1E5),
                       onPressed: () async {
                         debugPrint("File Sender selected");
                         if (await requestStoragePermission()) {
@@ -79,19 +92,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             );
                           }
                         }
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    ButtonHomeStyle(
-                      label: 'This device as\nBackup Storage',
-                      color: const Color(0xFFE5E1E5),
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const QrScanScreen(),
-                          ),
-                        );
                       },
                     ),
                   ],

@@ -30,3 +30,26 @@ Future<void> requestPermissions() async {
     await Permission.storage.request();
   }
 }
+
+Future<void> askPermissions() async {
+  final permissions = [
+    Permission.location,
+    Permission.bluetooth,
+    Permission.bluetoothScan,
+    Permission.bluetoothConnect,
+    Permission.nearbyWifiDevices,
+    Permission.bluetoothAdvertise,
+    Permission.bluetoothConnect,
+    Permission.bluetoothScan,
+  ];
+
+  for (var permission in permissions) {
+    if (await permission.isDenied) {
+      await permission.request();
+    }
+  }
+
+  if (await Permission.location.isPermanentlyDenied) {
+    await openAppSettings();
+  }
+}

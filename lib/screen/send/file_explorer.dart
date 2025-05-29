@@ -1,5 +1,10 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:project_s/helper/connection_service.dart';
+import 'package:path/path.dart' as p;
+import 'package:image_picker/image_picker.dart';
 
 class FileExplorerScreen extends StatefulWidget {
   const FileExplorerScreen({super.key});
@@ -9,9 +14,80 @@ class FileExplorerScreen extends StatefulWidget {
 }
 
 class _FileExplorerScreenState extends State<FileExplorerScreen> {
+  List<FolderItem> folderListWidget = [];
+  late final ValueListenable<Map<String, dynamic>?> payloadNotifier;
+  final TextEditingController _folderNameController = TextEditingController();
+
+  void _showCreateFolderDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Create New Folder'),
+          content: TextField(
+            controller: _folderNameController,
+            decoration: const InputDecoration(
+              labelText: 'Enter Folder Name',
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // Close the dialog without saving
+              },
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                // String folderName = _folderNameController.text;
+                // if (folderName.isNotEmpty) {
+                //   if (ConnectionService().channel != null) {
+                //     // Kirimkan request ke server untuk mendapatkan daftar gambar
+                //     ConnectionService()
+                //         .sendMessage("CREATE_DIRECTORY", folderName);
+                //     final service = ConnectionService();
+                //     service.messages.first.then((message) {
+                //       try {
+                //         _folderNameController.text == "";
+                //         folderListWidget.add(FolderItem(
+                //             path: message, value: message, type: "folder"));
+                //         Navigator.of(context)
+                //             .pop(); // Close the dialog after saving
+                //         setState(() {});
+                //       } catch (e) {
+                //         print('Failed to decode image list: $e');
+                //       }
+                //     });
+                //   }
+                // } else {
+                //   // Handle folder creation logic here
+                //   Navigator.of(context).pop(); // Close the dialog after saving
+                //   // Call your folder creation function here with the folder name
+                // }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+
+    // Menggunakan payloadNotifier untuk mendengarkan data yang diterima
+
+    payloadNotifier = ConnectionService().payloadNotifier;
+    payloadNotifier.addListener(() {
+      var data = payloadNotifier.value;
+      if (data != null) {
+        _processReceivedData(data);
+      }
+    });
+
+    _requestImages();
   }
 
   @override
@@ -82,45 +158,96 @@ class _FileExplorerScreenState extends State<FileExplorerScreen> {
 
             // Folder list
             Expanded(
-              child: ListView(
-                children: const [
-                  FolderItem(
-                      title: 'Awareness ISO 27001', date: 'Oct 16, 2023'),
-                  FolderItem(title: 'Foto Pre-wedding', date: 'Aug 23, 2023'),
-                  FolderItem(title: 'Foto Wedding', date: 'Aug 23, 2023'),
-                  FolderItem(title: 'IT Material', date: 'Oct 30, 2023'),
-                  FolderItem(title: 'Video Pre-wedding', date: 'Aug 21, 2023'),
-                  FolderItem(title: 'Video Wedding', date: 'Aug 23, 2023'),
-                ],
+              child: ListView.builder(
+                cacheExtent: 9999,
+                shrinkWrap: true,
+                scrollDirection: Axis.vertical,
+                itemCount: folderListWidget.length,
+                itemBuilder: (BuildContext context, int index) {
+                  return FolderItem(
+                      path: folderListWidget[index].path,
+                      value: folderListWidget[index].value,
+                      type: folderListWidget[index].type);
+                },
               ),
-            ),
+            )
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          ConnectionService().send("get_images");
-        },
-        backgroundColor: Colors.purple.shade100,
-        child: const Icon(Icons.camera_alt),
-      ),
     );
+  }
+
+  Future<void> _requestImages() async {
+    // Kirimkan permintaan ke server setelah callback sudah di-setup
+    final message = {"type": "request", "data": "file_data"};
+    await ConnectionService().sendToServer(message);
+  }
+
+  void _processReceivedData(Map<String, dynamic> data) {
+    // Pastikan data yang diterima memiliki folder dan gambar
+    if (data['folders'] != null) {
+      for (var folder in data['folders']) {
+        folderListWidget.add(FolderItem(
+          path: folder['filePath'],
+          value: folder['value'],
+          type: 'folder',
+        ));
+      }
+    }
+
+    if (data['images'] != null) {
+      for (var image in data['images']) {
+        folderListWidget.add(FolderItem(
+          path: image['filePath'],
+          value: image['value'],
+          type: 'image',
+        ));
+      }
+    }
+
+    // Update tampilan setelah data diterima
+    setState(() {});
   }
 }
 
 class FolderItem extends StatelessWidget {
-  final String title;
-  final String date;
+  final String path;
+  final String value;
+  final String type;
 
-  const FolderItem({super.key, required this.title, required this.date});
+  const FolderItem(
+      {super.key, required this.path, required this.value, required this.type});
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.folder, color: Colors.black),
-      title: Text(title),
-      subtitle: Text('Modified $date'),
-      trailing: const Icon(Icons.more_vert),
-    );
+    return type == "folder"
+        ? ListTile(
+            leading: const Icon(Icons.folder, color: Colors.black),
+            title: Text(p.basename(path)),
+            trailing: const Icon(Icons.more_vert),
+          )
+        : ListTile(
+            leading: Image.memory(
+              base64Decode(value),
+              width: 40,
+              height: 40,
+              fit: BoxFit.cover,
+            ),
+            title: Text(p.basename(path)),
+            trailing: const Icon(Icons.more_vert),
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (_) => Dialog(
+                  child: InteractiveViewer(
+                    child: Image.memory(
+                      base64Decode(value),
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
   }
 }

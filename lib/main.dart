@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:project_s/helper/connection_service.dart';
-import 'package:project_s/helper/server_service.dart';
 import 'package:project_s/screen/home.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:project_s/screen/send/file_explorer.dart';
+import 'package:project_s/shared/shared.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -43,11 +43,25 @@ Future<void> main() async {
     }
   }
 
-  runApp(const MyApp());
-  if (ServerService().server != null) {
-    ServerService().startSocketListenerInBackground(
-        ServerService().sockerServer!); // Mulai listener
+  PermissionStatus statusExternalStorage =
+      await Permission.manageExternalStorage.request();
+  if (!statusExternalStorage.isGranted) {
+    // Jika belum, minta permission
+    PermissionStatus newStatus =
+        await Permission.manageExternalStorage.request();
+
+    if (!newStatus.isGranted) {
+      await Permission.manageExternalStorage.request();
+    }
   }
+
+  await askPermissions();
+
+  runApp(const MyApp());
+  // if (ServerService().server != null) {
+  //   ServerService().startSocketListenerInBackground(
+  //       ServerService().sockerServer!); // Mulai listener
+  // }
 }
 
 class MyApp extends StatelessWidget {
@@ -62,7 +76,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: ConnectionService().socket != null
+      home: ConnectionService().connectedEndpointId != null
           ? const FileExplorerScreen()
           : const HomeScreen(),
     );
@@ -73,6 +87,6 @@ class MyApp extends StatelessWidget {
 Future<void> onNotificationSelected(
     NotificationResponse notificationResponse) async {
   await flutterLocalNotificationsPlugin.cancel(999);
-  ConnectionService().disconnect();
-  ServerService().disconnect();
+  // ConnectionService().disconnect();
+  // ServerService().disconnect();
 }

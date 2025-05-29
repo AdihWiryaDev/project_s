@@ -1,9 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 
+import 'package:nearby_connections/nearby_connections.dart';
 import 'package:project_s/helper/connection_service.dart';
 import 'package:project_s/screen/send/file_explorer.dart';
-import 'package:project_s/shared/show_connection_manager.dart';
 import 'package:qr_code_scanner/qr_code_scanner.dart';
 import 'package:flutter/material.dart';
 
@@ -16,6 +15,7 @@ class QrScanScreen extends StatefulWidget {
 
 class _QrScanScreenState extends State<QrScanScreen> {
   final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
+  final Strategy strategy = Strategy.P2P_CLUSTER;
   QRViewController? controller;
   String? result;
 
@@ -52,87 +52,56 @@ class _QrScanScreenState extends State<QrScanScreen> {
     );
   }
 
-  void _onQRViewCreated(QRViewController controller) async {
+  void _onQRViewCreated(QRViewController controller) {
+    String userName = "Client-${DateTime.now().millisecondsSinceEpoch}";
     this.controller = controller;
-    controller.scannedDataStream.listen((scanData) {
-      setState(() {
-        result = scanData.code;
-      });
 
-      // Optionally: Close scanner after first scan
-      controller.pauseCamera();
-      if (result != null) {
-        Map<String, dynamic> jsonData = jsonDecode(result!);
-        // Mendapatkan server (IP:Port) dan password
-        String server = jsonData['server'];
-        String password = jsonData['password'];
+    controller.scannedDataStream.listen((scanData) async {
+      if (!mounted) return;
 
-        // Memisahkan IP dan Port dari server
-        List<String> serverParts = server.split(':');
-        String ip = serverParts[0];
-        int port = int.parse(serverParts[1]);
+      await controller.pauseCamera();
 
-        connect(ip, port, password);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("gagal melakakukan scan qr")));
-      }
-    });
-  }
+      try {
+        final result = scanData.code;
+        if (result == null || result.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("QR tidak terbaca")),
+            );
+          }
+          return;
+        }
 
-  Future<void> connect(String ip, int port, String password) async {
-    final conn = ConnectionService();
+        final jsonData = jsonDecode(result);
+        final String password = jsonData['password'];
 
-    if (conn.socket != null) {
-      return;
-    }
+        final nearbyService = ConnectionService();
+        nearbyService.stopAll(); // pastikan bersih
 
-    try {
-      // Membuat koneksi ke server
-      conn.socket = await Socket.connect(ip, port);
-      // Kirimkan password ke server untuk validasi
-      conn.socket?.write(password);
-      await conn.socket?.flush();
-
-      // Menerima respon dari server
-      final response = await utf8.decoder.bind(conn.socket!).first;
-      if (response.contains("Akses diterima!")) {
-        showConnectionNotification("Terhubung dengan $ip:$port");
-
-        // Mulai listening untuk response berikutnya
-        conn.socket!.listen(
-          (data) {
-            final message = utf8.decode(data);
-            debugPrint("Dari server: $message");
-            // Kamu bisa pakai event bus, StreamController, atau callback di sini untuk update UI
+        await nearbyService.startDiscovery(
+          userName,
+          password,
+          () {
+            if (mounted) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const FileExplorerScreen()),
+              );
+            }
           },
-          onError: (err) {
-            debugPrint("Socket error: $err");
-            conn.socket?.destroy();
-          },
-          onDone: () {
-            debugPrint("Koneksi ditutup oleh server.");
-            conn.socket?.destroy();
+          () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Password mismatch")),
+            );
           },
         );
-
+      } catch (e) {
         if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const FileExplorerScreen(),
-            ),
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("QR tidak valid")),
           );
         }
-      } else {
-        showConnectionNotification("Gagal terhubung");
-        conn.socket?.close();
-        conn.socket = null;
       }
-    } catch (e) {
-      showConnectionNotification("Error: $e");
-      conn.socket?.close();
-      conn.socket = null;
-    }
+    });
   }
 }

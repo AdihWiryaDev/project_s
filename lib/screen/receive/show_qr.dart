@@ -1,12 +1,10 @@
-import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:nearby_connections/nearby_connections.dart';
 import 'package:project_s/helper/helper.dart';
 import 'package:project_s/helper/server_service.dart';
-import 'package:project_s/shared/show_connection_manager.dart';
+import 'package:project_s/shared/shared.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 class ShowQrScreen extends StatefulWidget {
@@ -19,12 +17,19 @@ class ShowQrScreen extends StatefulWidget {
 class _ShowQrScreenState extends State<ShowQrScreen> {
   TextEditingController serverController = TextEditingController();
   TextEditingController passwordController = TextEditingController();
-  String jsonServer = "";
 
+  final Strategy strategy = Strategy.P2P_CLUSTER;
+  String jsonServer = "";
+  String? connectedEndpoint;
   @override
   void initState() {
-    startServer();
+    initNearby();
     super.initState();
+  }
+
+  Future<void> initNearby() async {
+    await askPermissions(); // Tunggu permission beres
+    startServer(); // Lanjut start server
   }
 
   @override
@@ -138,6 +143,8 @@ class _ShowQrScreenState extends State<ShowQrScreen> {
   }
 
   void startServer() async {
+    await Nearby().stopAdvertising();
+
     int port = await getAvailablePort();
     final ip = await getLocalIpAddress();
     String password = generateRandomString(8);
@@ -147,65 +154,22 @@ class _ShowQrScreenState extends State<ShowQrScreen> {
       "password": password
     };
 
-    serverController.text = "$ip:$port";
+    serverController.text = "Server-${DateTime.now().millisecondsSinceEpoch}";
     passwordController.text = password;
 
     setState(() {
       jsonServer = jsonEncode(jsonData);
     });
 
-    final conn = ServerService();
-    conn.server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
-    debugPrint("Server dimulai di $ip:$port");
-
-    conn.server!.listen((Socket client) async {
-      debugPrint("Client mencoba terhubung: ${client.remoteAddress.address}");
-
-      // Simpan koneksi client ke service
-      conn.sockerServer = client;
-
-      final clientInput = await utf8.decoder.bind(client).first;
-
-      if (clientInput.trim() != password) {
-        client.write("ERROR: Password salah\n");
-        await client.flush();
-        client.close();
-        return;
-      }
-
-      try {
-        client.write("Akses diterima!");
-        await client.flush();
-
-        showConnectionNotification(
-            "Terhubung dengan ${client.remoteAddress.address}:${client.remotePort}");
-
-        // Start listener untuk tangani perintah dari client
-        conn.startSocketListenerInBackground(client);
-
+    ServerService().startServer(
+      serverController.text,
+      strategy,
+      password,
+      onClientConnected: () {
         if (mounted) {
-          Navigator.pop(context);
+          Navigator.pop(context); // ➜ kembali ke screen sebelumnya
         }
-      } catch (e) {
-        debugPrint("Error saat koneksi: $e");
-        client.close();
-      }
-    });
-  }
-
-  Future<List<String>> _getAllImages() async {
-    // Simulasi ambil path gambar dari direktori app
-    final dir = await getExternalStorageDirectory();
-    final files = dir?.listSync(recursive: true) ?? [];
-    final images = files
-        .whereType<File>()
-        .where((f) =>
-            f.path.endsWith('.jpg') ||
-            f.path.endsWith('.jpeg') ||
-            f.path.endsWith('.png'))
-        .map((f) => f.path)
-        .toList();
-
-    return images;
+      },
+    );
   }
 }
